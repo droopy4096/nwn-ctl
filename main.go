@@ -123,6 +123,17 @@ func copyFile(src, dst string) (int64, error) {
   End of Copy Functions
   =====================*/
 
+func fileExists(dst string) int {
+	if _, err := os.Stat(dst); err == nil {
+		// path/to/whatever exists
+		return 1
+	} else if !errors.Is(err, os.ErrNotExist) {
+		// unsure whether file exist or does not
+		return -1
+	}
+	return 0
+}
+
 func main() {
 	var skipErrors bool
 	var dryRun bool
@@ -161,20 +172,13 @@ func main() {
 
 	for _, fpath := range moduleInfo.Files {
 		dst := filepath.Join(basePath, fpath)
-		exists = 0
+		exists = fileExists(dst)
 		excluded := moduleInfo.Excluded.Contains(fpath)
-		if _, err := os.Stat(dst); err == nil {
-			// path/to/whatever exists
-			fmt.Printf("Can't overwrite existing %s\n", dst)
+		if exists != 0 {
+			// file exists
 			checks = false
-			exists = 1
-		} else if !errors.Is(err, os.ErrNotExist) {
-			// unsure whether file exist or does not
-			fmt.Printf("Uncertain existence of %s\n", dst)
-			checks = false
-			exists = -1
 		} else if !excluded {
-			// it's OK to install
+			// filed does not exist and is not excluded
 			moduleInfo.Installed = append(moduleInfo.Installed, fpath)
 		}
 		if exists != 0 && moduleInfo.OverwriteExisting && !excluded {
