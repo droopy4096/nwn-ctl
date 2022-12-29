@@ -134,22 +134,14 @@ func fileExists(dst string) int {
 	return 0
 }
 
-func main() {
-	var skipErrors bool
-	var dryRun bool
-	flag.StringVar(&moduleInfo.Name, "module", "", "")
-	flag.StringVar(&moduleInfo.ExtensionsDir, "extensions-dir", "Extensions", "")
-	flag.StringVar(&moduleInfo.NwnDir, "nwn-dir", ".", "")
-	flag.StringVar(&tgtDir, "target-dir", "", "")
-	flag.StringVar(&moduleInfo.BackupExtension, "backup-extension", ".bak", "")
-	flag.BoolVar(&skipErrors, "skip-errors", false, "Skip file errors")
-	flag.BoolVar(&moduleInfo.OverwriteExisting, "overwrite-existing", false, "Overwrite Existing files")
-	flag.BoolVar(&dryRun, "dry-run", false, "Dry Run")
-	flag.Var(&moduleInfo.Excluded, "excluded", "excluded files")
-	flag.Parse()
+func install(dryRun, skipErrors bool) {
+	var (
+		basePath string
+		checks   bool
+		copy     CopyFunc
+		exists   int
+	)
 
-	moduleRootPath, _ = filepath.Abs(filepath.Join(moduleInfo.NwnDir, moduleInfo.ExtensionsDir, moduleInfo.Name))
-	var basePath string
 	if tgtDir != "" {
 		basePath = tgtDir
 	} else {
@@ -158,16 +150,13 @@ func main() {
 	filepath.WalkDir(moduleRootPath, walkDir)
 	// filepath.Walk(filepath.Join(nwnDir, extensionsDir, moduleName), walker)
 	fmt.Println("Run pre-install checks...")
-	var checks bool
-	checks = true
-	var exists int
 
-	var copy CopyFunc
+	checks = true
 
 	if dryRun {
 		copy = copyDry
 	} else {
-		copy = copyDry
+		copy = copyFile
 	}
 
 	for _, fpath := range moduleInfo.Files {
@@ -176,26 +165,33 @@ func main() {
 		excluded := moduleInfo.Excluded.Contains(fpath)
 		if exists != 0 {
 			// file exists
+			fmt.Printf("%s seems to exist\n", fpath)
 			checks = false
 		} else if !excluded {
 			// filed does not exist and is not excluded
 			moduleInfo.Installed = append(moduleInfo.Installed, fpath)
 		}
 		if exists != 0 && moduleInfo.OverwriteExisting && !excluded {
-			copy(dst, dst+moduleInfo.BackupExtension)
+			// copy(dst, dst+moduleInfo.BackupExtension)
 			moduleInfo.Saved = append(moduleInfo.Saved, fpath+moduleInfo.BackupExtension)
+			moduleInfo.Installed = append(moduleInfo.Installed, fpath)
 		} else if exists != 0 && !excluded {
 			moduleInfo.Skipped = append(moduleInfo.Skipped, fpath)
 		}
 	}
 
-	if !checks && !skipErrors {
+	if !checks && !skipErrors && !moduleInfo.OverwriteExisting {
 		fmt.Printf("Exiting due to previous errors\n")
 		os.Exit(1)
 	}
 
 	for _, fpath := range moduleInfo.Installed {
 		// fmt.Println(fpath)
+		if moduleInfo.Saved.Contains(fpath + moduleInfo.BackupExtension) {
+			dst := filepath.Join(basePath, fpath)
+			fmt.Printf("%s is being backed up\n", fpath)
+			copy(dst, dst+moduleInfo.BackupExtension)
+		}
 		copy(filepath.Join(moduleRootPath, fpath), filepath.Join(basePath, fpath))
 	}
 	manifest, _ := json.Marshal(moduleInfo)
@@ -203,4 +199,78 @@ func main() {
 	manifestFile := filepath.Join(moduleInfo.NwnDir, moduleInfo.ExtensionsDir, moduleInfo.Name+".json")
 	fmt.Printf("Writing manifest to %s\n", manifestFile)
 	ioutil.WriteFile(manifestFile, manifest, 0640)
+}
+
+func uninstall(dryRun, skipErrors bool) {
+	manifestFile := filepath.Join(moduleInfo.NwnDir, moduleInfo.ExtensionsDir, moduleInfo.Name+".json")
+	uninstalledFile := filepath.Join(moduleInfo.NwnDir, moduleInfo.ExtensionsDir, moduleInfo.Name+".uninstalled")
+	jsonFile, err := os.Open(manifestFile)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer jsonFile.Close()
+
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+	var mi ModuleInfo
+	err = json.Unmarshal(byteValue, &mi)
+	if err != nil {
+		panic(err)
+	}
+	for _, installed := range mi.Installed {
+		filepath := filepath.Join(mi.NwnDir, installed)
+		if !dryRun {
+			os.Remove(filepath)
+		} else {
+			fmt.Printf("- %s\n", filepath)
+		}
+	}
+	for _, saved := range mi.Saved {
+		filepath := filepath.Join(mi.NwnDir, saved)
+		// we need to rename filepath to original by removing suffix
+		// strings.HasSuffix(xxx,mi.BackupExtension)
+		originalFilepath := strings.TrimSuffix(filepath, mi.BackupExtension)
+		if !dryRun {
+			err := os.Rename(filepath, originalFilepath)
+			if err != nil {
+				fmt.Println(err)
+			}
+		} else {
+			fmt.Printf("o %s <- %s\n", originalFilepath, filepath)
+		}
+	}
+	if !dryRun {
+		err = os.Rename(manifestFile, uninstalledFile)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+}
+
+func main() {
+	var (
+		skipErrors bool
+		dryRun     bool
+		command    string
+	)
+
+	flag.StringVar(&moduleInfo.Name, "module", "", "")
+	flag.StringVar(&moduleInfo.ExtensionsDir, "extensions-dir", "Extensions", "")
+	flag.StringVar(&moduleInfo.NwnDir, "nwn-dir", ".", "")
+	flag.StringVar(&tgtDir, "target-dir", "", "")
+	flag.StringVar(&moduleInfo.BackupExtension, "backup-extension", ".bak", "")
+	flag.StringVar(&command, "command", "install", "")
+	flag.BoolVar(&skipErrors, "skip-errors", false, "Skip file errors")
+	flag.BoolVar(&moduleInfo.OverwriteExisting, "overwrite-existing", false, "Overwrite Existing files")
+	flag.BoolVar(&dryRun, "dry-run", false, "Dry Run")
+	flag.Var(&moduleInfo.Excluded, "excluded", "excluded files")
+	flag.Parse()
+
+	moduleRootPath, _ = filepath.Abs(filepath.Join(moduleInfo.NwnDir, moduleInfo.ExtensionsDir, moduleInfo.Name))
+
+	if command == "install" {
+		install(dryRun, skipErrors)
+	} else if command == "uninstall" {
+		uninstall(dryRun, skipErrors)
+	}
+
 }
