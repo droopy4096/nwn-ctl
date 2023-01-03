@@ -38,7 +38,10 @@ assuming that NWN was installed into `/home/user1/.wineprefixes/nwn/drive_c/GOG 
 we can install `foo`:
 
 ```shell
-nwn-cli -nwn-dir "/home/user1/.wineprefixes/nwn/drive_c/GOG Games/NWN Diamond/" -extensions-dir Extensions -module foo -skip-errors
+nwn-cli -nwn-dir "/home/user1/.wineprefixes/nwn/drive_c/GOG Games/NWN Diamond/" \
+   -extensions-dir Extensions \
+   -module foo \
+   -skip-errors
 ```
 
 which will result in creation of `foo.json` outlining details of install:
@@ -76,7 +79,10 @@ which will result in creation of `foo.json` outlining details of install:
 which sufficiently outlines install to be used in reverse to remove module:
 
 ```shell
-nwn-cli -nwn-dir="/home/user1/.wineprefixes/nwn/drive_c/GOG Games/NWN Diamond/" -extensions-dir=Extensions -command=uninstall -module foo
+nwn-cli -command=uninstall \
+   -nwn-dir="/home/user1/.wineprefixes/nwn/drive_c/GOG Games/NWN Diamond/" 
+   -extensions-dir=Extensions \
+   -module foo
 ```
 
 which will instruct `nwn-cli` to read `foo.json` manifest and **will replace** `name`, `extensionsDir` and `nwnDir` with values provided in CLI and remove all the installed (declared to be installed) files and rename `foo.json` to `foo.uninstalled` preserving install information for later.
